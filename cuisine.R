@@ -1,0 +1,362 @@
+#---- library
+##install.packages("corrplot")
+install.packages("factoextra")
+install.packages("lattice")
+library(lattice)
+library(corrplot)
+library("FactoMineR")
+library(factoextra)
+library(ggplot2)
+library(tibble)
+library(ade4)
+library(MASS)
+library(ggrepel)
+library(cluster)
+#donnees recettes-pays.data
+
+
+setwd("D:/Bi/utc/SY09/Projet 1")
+recette_pays <- read.table("recettes-pays.data", header = TRUE, sep = ",", row.names = "origin")
+
+
+#Question 1 : Analyse exploratoire
+        #analyses simples     
+          str(recette_pays)
+          summary(recette_pays)
+          variance<-data.frame(variance=sapply(recette_pays,var))  
+          variance<-t(variance)
+          covariance <- cov(recette_pays)  
+          summary(covariance)
+
+       #test de corrélation
+          correlation <- cor(recette_pays)
+          corrplot(correlation, method="circle", type="lower")
+          dev.off()
+          cor.mtest <- function(mat) {
+            mat <- as.matrix(mat)
+            n <- ncol(mat)
+            p.mat<- matrix(NA, n, n)
+            diag(p.mat) <- 0
+            for (i in 1:(n )) {
+              for (j in (i):n) {
+                tmp <- cor.test(mat[, i], mat[, j])
+                p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+              }
+            }
+            colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+            p.mat
+          }
+
+        p.mat<-cor.mtest(correlation)
+        x11()
+        corrplot(correlation, type="lower", order="hclust", p.mat = p.mat, sig.level = 0.05,  insig = "blank")
+        summary(correlation)
+        
+        #observation des boxplots selon toutes les variables
+            x11()
+          boxplot(recette_pays[,1:16], ylim=c(0,1), main="Boxplot 1" )
+          boxplot(recette_pays[,17:27], ylim=c(0,1),main="Boxplot 2")
+          boxplot(recette_pays[,28:39],ylim=c(0,1), main="Boxplot 3")
+          boxplot(recette_pays[,40:50],ylim=c(0,1), main="Boxplot 4")
+
+#Question 2:
+        ##Analyse composants principales
+          rec_matrice <- as.matrix(recette_pays[,-1])
+          Dp <- diag(x = 1/26, nrow = 26, ncol = 26) # 26 observations
+          M <- diag(x = 1, nrow = 50, ncol = 50)
+          rec_scaled <- scale(rec_matrice)
+          V <- t(rec_scaled)%*%Dp%*%rec_scaled
+          x <- eigen(V)
+          valeur_propre <- x$values
+          vecteur_propre <- x$vectors
+          positive <- valeur_propre > 0 #valeurs propres positives
+          valeur_propre <- valeur_propre[positive == TRUE]
+          vecteur_propre <- vecteur_propre[,1:length(valeur_propre)]
+          barplot(valeur_propre)
+          inertie_totale <- sum(valeur_propre)
+          pourcentage_iner_expliquee <- valeur_propre / inertie_totale
+          C <- rec_scaled%*%M%*%vecteur_propre
+          plot(C[,2]~C[,1])
+          text(C[,1],C[,2],recette_pays[,1])
+          plot(C[,3]~C[,1])
+          text(C[,1],C[,3],recette_pays[,1])
+          D <- cor(rec_scaled, C)
+          plot(-1:1, -1:1, type = "n", xlab = "Axe factoriel 1", ylab = "Axe factoriel 2")
+          text(D[, 1], D[, 2],colnames(rec_matrice))
+          abline(h = 0, v = 0, col = "blue")
+          curve(sqrt(25 - x^2), -1, 1, add = T, col = "blue")
+          curve(-sqrt(5 - x^2), -1, 1, add = T, col = "blue")
+
+
+          #essai bis ACP
+          x11()
+          par(mfrow=c(2,2))
+          res.pca <- PCA(recette_pays, graph = FALSE)
+          fviz_eig(res.pca, addlabels = TRUE, ylim = c(0, 50),  main = "Valeurs propres")
+          fviz_ca_biplot(res.pca, addlabels = TRUE, ylim = c(0, 50))
+          fviz_contrib(res.pca, choice = "var", axes = 1, top = 10)
+          fviz_pca_var(res.pca, col.var = "black")
+          fviz_pca_var(res.pca, col.var = "cos2",
+                       gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+                       repel = TRUE )
+          fviz_pca_ind (res.pca, col.ind = "cos2",
+                        gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+                        repel = TRUE )# Évite le chevauchement de texte
+                        
+          fviz_pca_ind(res.pca,
+                       geom.ind = "point",  scale(1,1),# colorer by groups
+                       palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                       addEllipses = TRUE, # Ellipses de concentration
+                       legend.title = "Groups"
+          )
+          fviz_pca_biplot(res.pca, repel = TRUE,
+                          col.var = "#2E9FDF", # Couleur des variables
+                          col.ind = "#696969"  # Couleur des individues
+          )
+
+
+#Question 3 : analyse ascendante hierarchique distance Manhattan
+
+         
+          rec_matrice <- as.matrix(recette_pays)
+          rec_scaled <- scale(rec_matrice) 
+          dissimilarite <- dist(rec_scaled, method = "manhattan", diag = TRUE)
+          par(mfrow = c(1,2))
+          hc_cusine.ward <- hclust(dissimilarite, method ="ward.D")
+          x11()
+          plot(hc_cusine.ward, main = "Method : Ward D") 
+          inertie <- sort(hc_cusine.ward$height, decreasing = TRUE)
+          plot(inertie[1:20], type = "s", xlab = "Nombre de classes", ylab = "Inertie")
+          points(c(2, 3, 8), inertie[c(2, 3, 8)], col = c("yellow", "purple", "green"), cex = 2, 
+                 lwd = 3)
+
+        ###méthode wardd2
+          x11()
+          hc_cusine.wardd2 <- hclust(dissimilarite, method = "ward.D2")
+          plot(hc_cusine.wardd2, main = "Method : Ward D2") #carré dees distances
+          inertie <- sort(hc_cusine.wardd2$height, decreasing = TRUE)
+          plot(inertie[1:20], type = "s", xlab = "Nombre de classes", ylab = "Inertie", main = "Sauts d'inertie mathode de Ward")
+          points(c(2, 3, 8), inertie[c(2, 3, 8)], col = c("yellow", "purple", "green"), cex = 2, 
+                 lwd = 3)
+          
+          plot(hc_cusine.wardd2, main = "Dendrogramme des données reecettes \n Méthode de Ward")
+          rect.hclust(hc_cusine.wardd2, 2, border = "yellow")
+          rect.hclust(hc_cusine.wardd2, 3, border = "purple")
+          rect.hclust(hc_cusine.wardd2, 8, border = "green")
+
+
+
+        ###méthode complete
+          x11()
+          hc_cusine.complete <- hclust(dissimilarite, method = "complete")
+          plot(hc_cusine.complete, main = "Method : Complete")
+          inertie <- sort(hc_cusine.wardd2$height, decreasing = TRUE)
+          plot(inertie[1:20], type = "s", xlab = "Nombre de classes", ylab = "Inertie")
+          points(c(2, 3, 8), inertie[c(2, 3, 8)], col = c("yellow", "purple", "blue3"), cex = 2, 
+                 lwd = 3)
+
+        ###méthode moyenne
+          x11()
+          hc_cusine.average <- hclust(dissimilarite, method = "average")
+          plot(hc_cusine.average, main = "Method : Average")
+          
+        ###méthode mediane
+          x11()
+          hc_cusine.median <- hclust(dissimilarite, method = "median")
+          plot(hc_cusine.median, main = "Method : Median")
+          
+        ###méthode centroide
+          x11()
+          hc_cusine.centroid <- hclust(dissimilarite, method = "centroid")
+          plot(hc_cusine.centroid, main = "Method : Centroid")
+          
+        ###méthode single
+          x11()
+          hc_cusine.single <- hclust(dissimilarite, method = "single")
+          
+          plot(hc_cusine.single, main = "Method : Single")
+
+
+#Question 4 : K-means
+          
+          #Execution de l'algorithm
+            rec_matrice <- as.matrix(recette_pays)
+            rec_scaled <- scale(rec_matrice)
+            dissimilarite <- dist(rec_scaled)
+            rec_km <- kmeans(rec_scaled, 2, iter.max = 1000 )
+            x11()
+            clusplot(dissimilarite, rec_km$cluster, repel=TRUE, diss= TRUE, color = TRUE , shade = TRUE, labels = 2, lines = 0, main = "Données recette: Algorithme K-means avec k = 2", xlab = "composante 1", ylab="composante 2" )
+          
+          #Inertie
+            inertie_matrice <- matrix(0, nrow = 100, ncol = 10)
+            for (i in 1:10)
+            {
+              for (j in 1:100)
+              {
+                inertie_matrice[j,i] <- kmeans(rec_scaled,i)$tot.withinss
+              }
+            }
+            
+            inertie <- apply(inertie_matrice,2,min)
+            plot(inertie, main = "Données recette: Inertie intra-classe minimale en fonction de K", type = "l", xlab = "K", ylab = "Inertie intra-classe")
+            apply(inertie_matrice,2,var)
+
+          #Inertie intra classe (courbe montante)
+            inertie_matrice <- matrix(0, nrow = 100, ncol = 10)
+            for (i in 1:10)
+            {
+              for (j in 1:100)
+              {
+                inertie_matrice[j,i] <- kmeans(rec_scaled,i)$betweenss/kmeans(rec_scaled,i)$totss*100
+              }
+            }
+            
+            inertie <- apply(inertie_matrice,2,min)
+            x11()
+            plot(inertie, main = "Données recette: Proportion de l'inertie inter-classe sur l'inertie totale \nen fonction de K", type = "l", xlab = "K", ylab = "Inertie inter-classe")
+            apply(inertie_matrice,2,var)
+            
+            
+            
+    #question 5
+            ##AFTD
+             #library("ggrepel") # evite chauvauchement texte pour le plot
+            rec_matrice <- as.matrix(recette_pays,diag=TRUE, upper=TRUE) # -1/2 Q* D^2*Q
+            rec_scaled <- scale(rec_matrice) #centrage de la matrice
+            dissimilarite <- dist(rec_scaled, diag = TRUE)
+            mds <- cmdscale(dissimilarite, eig = TRUE,k=5)
+
+             #Affichage des plots
+            x11()
+            barplot(mds$eig, main= "Valeurs propres issues de l'AFTD du jeu de données de Cuisine", xlab=expression(paste("Valeurs propres ", lambda," n ")), ylab="valeurs propres")#valeurs propres issus de l'AFTD
+            par(mfrow=c(1,3))
+            abline(h = 0, v = 0, col = "blue")
+            library(MASS)
+            ggplot(as.data.frame(mds$points))+ geom_point(aes(mds$points[,1],mds$points[,2], color = 'red'))+geom_text_repel(aes(mds$points[,1],mds$points[,2],label = rownames(recette_pays))) + ggtitle("Données recette dans le premier plan factoriel")
+            #ggplot(as.data.frame(mds$points))+ geom_point(aes(mds$points[,1],mds$points[,3], color = 'blue'))+geom_text_repel(aes(mds$points[,1],mds$points[,3],label = rownames(recette_pays)))
+            #ggplot(as.data.frame(mds$points))+ geom_point(aes(mds$points[,1],mds$points[,5], color = 'grey'))+geom_text_repel(aes(mds$points[,1],mds$points[,3],label = rownames(recette_pays)))
+            #plot(mds$points[,1]~mds$points[,3], col=rainbow(ncol(recette_pays)), xlab="Axe 1", ylab="Axe 3")
+            #text(mds$points[,3],mds$points[,1],  row.names(recette_pays))
+            #plot(mds$points[,1]~mds$points[,5], col=rainbow(ncol(recette_pays)), xlab="Axe 1", ylab="Axe 5")
+            #text(mds$points[,5],mds$points[,1],  row.names(recette_pays),xlab="Axe 1", ylab="Axe 5" )
+
+
+           #observation des diagrammes de shepard pour différentes valeur de k
+            x11()
+            par(mfrow=c(1,3))
+                #K=2
+                  cuisine_AFTD1<- cmdscale(dissimilarite, k=2)
+                  s1 = Shepard(as.dist(dissimilarite), cuisine_AFTD1)
+                  plot(s1$y~s1$yf, main = "Diagramme de Shepard pour k = 2",col="black", pch =4, asp=1)
+                  abline(0, 1, col="blue")+legend("topright", legend =paste("R²=",R), cex = 0.5)
+                  R<-cor(s1$y,s1$yf)
+                #K=3
+                  cuisine_AFTD3<- cmdscale(dissimilarite, k=3)
+                  s3 = Shepard(as.dist(dissimilarite), cuisine_AFTD3)
+                  plot(s3$y~s3$yf, main = "iagramme de Shepard pour k = 3)",col=rainbow(ncol(recette_pays)), pch =4, asp=1)
+                  abline(0, 1)
+                  cor(s3$y,s3$yf)
+                #K=5
+                  cuisine_AFTD5<- cmdscale(dissimilarite, k=5)
+                  s5 = Shepard(as.dist(dissimilarite), cuisine_AFTD5)
+                  plot(s5$y~s5$yf, main = "iagramme de Shepard pour k = 5)",col=rainbow(ncol(recette_pays)), pch =4, asp=1)
+                  abline(0, 1)
+                  cor(s5$y,s5$yf)
+
+#question 6:Analyse descriptive            
+
+        #Donnees recettes-echant.data
+            setwd("D:/Bi/utc/SY09/Projet 1")
+            recettes_echant <- read.table("recettes-echant.data", header = TRUE, sep = ",")
+    
+            
+            str(recettes_echant)
+            sapply(recettes_echant[,-1],var) 
+            covariance <- cov(recettes_echant[,-1])
+            summary(covariance)
+            correlation <- cor(recettes_echant[,-1])
+            summary(covariance)
+            x11()
+            par(mfrow=c(1,2))
+            barplot(apply(recettes_echant[,2:51],2,sum), horiz=TRUE, space=0.5, cex.axis = 1,cex.names = 0.70, las=1, main= "Barplot des données recettes en binaire \n Somme des observations pour chaque ingrédient")
+            barplot(apply(recettes_echant[,2:51],2,sum), horiz=TRUE, space=0.5, cex.axis = 1,cex.names = 0.75, las=1)
+            
+
+#Question 7 et 8: 
+       #Transformation
+        rec_trans <- matrix(0, nrow = length(unique(recettes_echant$origin)), ncol = ncol(recettes_echant[,-1]))
+          rownames(rec_trans) <- unique(recettes_echant[,1])
+          for (i in 1:length(unique(recettes_echant[,1]))) # de 1 à 26 car 26 origines 
+          {
+            print(i)
+            for (j in 2:ncol(recettes_echant[,])) #51 ingrédients
+            {
+              count <- 0
+              for (k in 1:nrow(recettes_echant)) #2000 observations
+              {
+                if (recettes_echant[k,1] == unique(recettes_echant[,1])[i]) # si k=5 --> maroccan si i=5-->Indian/ le test sera faux 
+                  count <- count + recettes_echant[k,j]# si test positif alors stoke dans count (soit 0 ou 1)
+              }
+              rec_trans[i,j-1] <- count  #on stocke ensiute dans le tableau
+            }
+          }
+          colnames(rec_trans) <- colnames(recettes_echant[,-1])
+          #rec_trans <- t(rec_trans) 
+
+      #test<-rec_trans
+          test <-rec_trans
+          test<-read.csv("rec_trans.csv", header = TRUE, sep = ",", row.names = "X")
+          rec <- as.matrix(test)     
+          rec_scaled2 <- scale(rec)#centrage pour éviter le poids des variable avec variances importantes
+          dissimilarite2 <- dist(rec_scaled2, method = "manhattan", diag = TRUE)
+          
+          #méthode de Ward
+          hc2_cusine.ward <- hclust(dissimilarite2, method ="ward.D2")
+          x11()
+          plot(hc2_cusine.ward, main=" ")
+          title(main=paste("Dendogramme par classification ascendante hierarchique","\n",sep=""))
+          title(main=paste("\n","Methode de Ward",sep=""),cex.main=0.75)
+          rect.hclust(hc2_cusine.ward,4)
+          inertie2 <- sort(hc2_cusine.ward$height, decreasing = TRUE)
+          plot(inertie[1:20], type = "s", xlab = "Nombre de classes", ylab = "Inertie")
+          points(c(2, 3,4,6,7, 8), inertie[c(2, 3,4,6,7, 8)], col = c("yellow", "purple", "green", "orange", "red", "grey"), cex = 2, 
+                 lwd = 3)
+          
+          #autre méthode
+          
+          ###dissimilarite/ je ne suis pas sure que ce soit ça 
+          rec3 <- t(as.matrix(recettes_echant[,-1]))
+          dissimilarite3 <- dist(rec3, method = "binary", diag = TRUE)
+          hc_rec3 <- hclust(dissimilarite3, method = "ward.D2")
+          x11()
+          plot(hc_rec3)
+          
+          
+#question 9: algorithme des k-médoides
+          
+          library("cluster")
+          asw <- numeric(20)
+            for (k in 2:20)
+              asw[k] <- pam(dissimilarite2, k) $ silinfo $ avg.width
+          k.best <- which.max(asw)
+        
+          #algo kmedoide et affichage 
+          x11()
+          par(mfrow=c(1,2))
+          kmedoides4 <- pam(dissimilarite2, 4, metric = "manhattan", diss = TRUE)
+          clusplot(as.matrix(dissimilarite2), kmedoides4$clustering, diss= TRUE, color = TRUE , shade = TRUE, labels = 2, lines = 0,main= paste("Kmedoides avec k=4"))
+          kmedoides2 <- pam(dissimilarite2, 2, metric = "manhattan", diss = TRUE)
+          clusplot(as.matrix(dissimilarite2), kmedoides2$clustering, diss= TRUE, color = TRUE , shade = TRUE, labels = 2, lines = 0,main= paste("Kmedoides avec k=2"))
+          
+         # silhouette 
+          x11()
+          par(mfrow=c(1,2))
+          plot(s.pam <- silhouette(kmedoides4), main = "Silhouette de la classification des k-medoïdes pour K=4")+text(rownames(rec_scaled2))
+          plot(s.pam <- silhouette(kmedoides2), main = "Silhouette de la classification des k-medoïdes pour K=4")+text(rownames(rec_scaled2))
+       
+        # Ingrédients représentant  
+          x11()
+          par(mfrow=c(1,2))
+          grid.table(Ingr_Classe<-as.data.frame(kmedoides4$medoids)) # ingrédient représentant les 4 classes
+          grid.table(Ingr_Classe<-as.data.frame(kmedoides2$medoids))
+          
